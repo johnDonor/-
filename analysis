@@ -1,0 +1,197 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib import font_manager, rc
+import numpy as np
+
+# 한글 폰트 설정
+font_path = "C:/Windows/Fonts/malgun.ttf"  # Windows의 경우
+font_name = font_manager.FontProperties(fname=font_path).get_name()
+rc('font', family=font_name)
+
+# Load the Excel file
+file_path = '식습관DB_2024.xlsx'
+xls = pd.ExcelFile(file_path)
+
+# Define a function to analyze meal costs
+def analyze_meal_costs(df, residence_type):
+    # Filter by residence type
+    filtered_df = df[df['거주유형'] == residence_type]
+    
+    
+    filtered_df['가격'] = pd.to_numeric(filtered_df['가격'], errors='coerce')
+    meal_costs = filtered_df['가격']
+    # Drop NaN values that result from conversion
+    filtered_df = filtered_df.dropna(subset=['가격'])
+    meal_costs_nonzero = meal_costs.copy()
+    meal_costs_nonzero[meal_costs_nonzero == 0] = 3000
+    meal_costs_outlier = meal_costs_nonzero.copy()
+    
+    # Calculate required statistics
+    mean_cost = meal_costs.mean()
+    top_10_max_costs = meal_costs.nlargest(10).tolist()
+    non_zero_costs = meal_costs[meal_costs > 0]
+    min_non_zero_cost = non_zero_costs.min() if not non_zero_costs.empty else None
+    std_dev_cost = meal_costs.std()
+    zero_count = meal_costs[meal_costs == 0].count()
+    
+    nonzero_mean = meal_costs_nonzero.mean()
+    nonzero_std = meal_costs_nonzero.std()
+    
+    outlier = meal_costs_outlier[meal_costs_outlier > 7 * nonzero_mean]
+    meal_costs_outlier = meal_costs_outlier[meal_costs_outlier <= 7 * nonzero_mean]
+    outlier_mean = meal_costs_outlier.mean()
+    outlier_std = meal_costs_outlier.std()
+    
+    analysis = {
+        '평균': mean_cost,
+        '0->3000 mean': nonzero_mean, 
+        'outlier remove mean': outlier_mean,
+        '표준편차': std_dev_cost,
+        '0->3000 std': nonzero_std,
+        'outlier remove std': outlier_std,
+        '가장 큰 값 10개': top_10_max_costs,
+        '0을 제외한 최솟값': min_non_zero_cost,
+        '0인 개수': zero_count,
+        '제외된 이상치': outlier.tolist()
+    }
+    
+    return analysis
+
+# Load the data for specific sheets
+df_2024 = pd.read_excel(xls, sheet_name='2024-1학기')
+df_2023 = pd.read_excel(xls, sheet_name='2023-1학기')
+
+# Analysis for 2024-1학기
+analysis_2024_dorm = analyze_meal_costs(df_2024, '기숙사')
+analysis_2024_offcampus = analyze_meal_costs(df_2024, '자취')
+
+# Analysis for 2023-1학기
+analysis_2023_dorm = analyze_meal_costs(df_2023, '기숙사')
+analysis_2023_offcampus = analyze_meal_costs(df_2023, '자취')
+
+# Combine results
+analysis_results = {
+    '2024-1학기 기숙사': analysis_2024_dorm,
+    '2024-1학기 자취': analysis_2024_offcampus,
+    '2023-1학기 기숙사': analysis_2023_dorm,
+    '2023-1학기 자취': analysis_2023_offcampus
+}
+
+# Display the results
+for key, value in analysis_results.items():
+    print(f"Analysis for {key}:")
+    for stat, result in value.items():
+        print(f"  {stat}: {result}")
+    print("\n")
+
+# Extracting values for plotting
+categories = list(analysis_results.keys())
+means = [result['평균'] for result in analysis_results.values()]
+nonzero_means = [result['0->3000 mean'] for result in analysis_results.values()]
+outlier_means = [result['outlier remove mean'] for result in analysis_results.values()]
+
+std_devs = [result['표준편차'] for result in analysis_results.values()]
+nonzero_stds = [result['0->3000 std'] for result in analysis_results.values()]
+outlier_stds = [result['outlier remove std'] for result in analysis_results.values()]
+
+# Define colors for each category
+colors = ['blue', 'green', 'red', 'purple']
+
+# Plotting the means
+plt.figure(figsize=(14, 7))
+x = range(len(categories))
+plt.plot(x, means, marker='o', label='원본 data', color=colors[0])
+plt.plot(x, nonzero_means, marker='o', label='non-zero data', color=colors[1])
+plt.plot(x, outlier_means, marker='o', label='w/o outlier data', color=colors[2])
+plt.xticks(x, categories, rotation=20)
+plt.ylabel('평균(원)')
+plt.legend()
+plt.title('평균 비교(단위: 원)')
+
+plt.show()
+
+# Plotting the standard deviations
+plt.figure(figsize=(14, 7))
+plt.plot(x, std_devs, marker='o', label='원본 data', color=colors[0])
+plt.plot(x, nonzero_stds, marker='o', label='non-zero data', color=colors[1])
+plt.plot(x, outlier_stds, marker='o', label='w/o outlier data', color=colors[2])
+plt.xticks(x, categories, rotation=20)
+plt.ylabel('표준편차(원)')
+plt.legend()
+plt.title('표준편차 비교(단위: 원)')
+
+plt.show()
+
+# Table for top 10 maximum values and zero counts
+top_10_table = {key: value['가장 큰 값 10개'] for key, value in analysis_results.items()}
+zero_count_table = {key: value['0인 개수'] for key, value in analysis_results.items()}
+
+# Create a dataframe for outliers
+outlier_table = {key: value['제외된 이상치'] for key, value in analysis_results.items()}
+max_outliers = max(len(outs) for outs in outlier_table.values())
+for key in outlier_table:
+    if len(outlier_table[key]) < max_outliers:
+        outlier_table[key] += [None] * (max_outliers - len(outlier_table[key]))
+
+print("가장 큰 값 10개:")
+print(pd.DataFrame(top_10_table))
+
+print("\n0인 끼니의 수:")
+print(pd.DataFrame(zero_count_table, index=['0인 개수']))
+
+print("\n제외된 outliers:")
+print(pd.DataFrame(outlier_table))
+
+
+
+# Define a function to analyze gender and age based on the first occurrence of each subject
+def analyze_gender_age_first_occurrence(df):
+    # Sort the dataframe by '피험자번호' to ensure we get the first occurrence
+    df_sorted = df.sort_values(by=['피험자번호']).drop_duplicates(subset=['피험자번호'], keep='first')
+    
+    # Total number of students
+    total_students = len(df_sorted)
+    
+    # Gender distribution
+    gender_distribution = df_sorted['성별'].value_counts().to_dict()
+    
+    # Age statistics
+    max_age = df_sorted['연령(만)'].max()
+    min_age = df_sorted['연령(만)'].min()
+    mean_age = df_sorted['연령(만)'].mean()
+    std_dev_age = df_sorted['연령(만)'].std()
+    
+    analysis = {
+        '총 인원': total_students,
+        '남자 인원': gender_distribution.get('남성', 0),
+        '여자 인원': gender_distribution.get('여성', 0),
+        '최대 나이': max_age,
+        '최소 나이': min_age,
+        '평균 나이': mean_age,
+        '나이 표준편차': std_dev_age
+    }
+    
+    return analysis
+
+# Load the data for specific sheets
+df_2024_1 = pd.read_excel(xls, sheet_name='2024-1학기')
+df_2023_1 = pd.read_excel(xls, sheet_name='2023-1학기')
+
+# Analysis for 2024-1학기 and 2023-1학기
+analysis_2024_1 = analyze_gender_age_first_occurrence(df_2024_1)
+analysis_2023_1 = analyze_gender_age_first_occurrence(df_2023_1)
+
+analysis_results = {
+    '2024-1학기': analysis_2024_1,
+    '2023-1학기': analysis_2023_1
+}
+
+# Display the results as a dataframe
+
+
+for key, value in analysis_results.items():
+    print(f"Analysis for {key}:")
+    for stat, result in value.items():
+        print(f"  {stat}: {result}")
+    print("\n")
+
